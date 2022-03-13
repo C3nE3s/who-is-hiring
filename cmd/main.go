@@ -8,11 +8,12 @@ import (
 	"regexp"
 )
 
+//can get post ID through user call in future
+
 const baseUrl = "https://node-hnapi.herokuapp.com"
 const postResource = "item"
+const userResource = "user"
 const march22PostId = "30515750"
-
-var disqualifyRegEx = regexp.MustCompile(`(?i)(nft | chain | web3 | bitcoin | decentralize | democratize | onsite)`)
 
 type Post struct {
 	ID            int           `json:"id"`
@@ -40,6 +41,14 @@ type PostComment struct {
 	Dead     bool          `json:"dead,omitempty"`
 }
 
+type Listing struct {
+	title       string
+	description string
+	link        string
+	time        int
+	score       int
+}
+
 func main() {
 	resp, err := http.Get(baseUrl + "/" + postResource + "/" + march22PostId)
 	if err != nil {
@@ -50,30 +59,87 @@ func main() {
 	body, err := ioutil.ReadAll(resp.Body)
 
 	var result Post
-
 	if err := json.Unmarshal(body, &result); err != nil {
 		fmt.Println("Can not unmarshal JSON")
 	}
 
-	filteredSubmissions := removeInvalidEntries(result.Comments)
+	listings := formatAndRank(result.Comments)
+	writeToCSV(listings)
+}
 
-	fmt.Println(filteredSubmissions)
+// this is On^2 (nested loops)
+// TODO: make this more efficient
+func formatAndRank(comments []PostComment) []Listing {
+	final := make([]Listing, 0)
+
+	for _, comment := range comments {
+		final = append(final, Listing{
+			title:       "",
+			description: "",
+			link:        "",
+			time:        comment.Time,
+			score:       getListingRelevanceRank(comment.Content),
+		})
+	}
+
+	return final
+}
+
+func getListingRelevanceRank(listing string) int {
+
+	regexMap := map[string]*regexp.Regexp{
+		//any 6 digit number starting w/ 1 or 2; 1 or 2 w/ 2 digits after, preceded by us $ sign
+		"compensation":     regexp.MustCompile(`(?mi)([12]\d{2},\d{3})|([$][1,2]\d{2})`),
+		"typescript":       regexp.MustCompile(`(?mi)typescript`),
+		"remote":           regexp.MustCompile(`(?im)remote`),
+		"location":         regexp.MustCompile(`(?m)([nN]orth(?:[[:blank:]])[aA](?:merica))|(US)|([sS](?:tates))`),
+		"desired_tech":     regexp.MustCompile(`(?mi)(react)|(nextjs)|(gatsby)|(nuxt)|(svelte)`),
+		"front_end":        regexp.MustCompile(`(?im)front(?:[\se-])`),
+		"full_stack":       regexp.MustCompile(`(?mi)(full-stack)|(fullstack)|(full stack)`),
+		"acceptable_tech":  regexp.MustCompile(`(?mi)(angular)|(vue)`),
+		"luxury":           regexp.MustCompile(`(?mi)(unlimited)|(patern*)|(parental)|(4[/s-]day)|(family[/s-]friendly)`),
+		"seniority":        regexp.MustCompile(`(?mi)(senior)|(mid)`),
+		"precise_location": regexp.MustCompile(`(?m)([G][Aa])|([Aa]tlanta)`),
+		"undesired_tech":   regexp.MustCompile(`(?mi)(ember)|(jquery)|(angularjs)|(wordpress)`),
+		//if the listing mentions onsite, I punish more for a prefix or post fix 'and', 'or' hints at a hybrid model
+		"onsite_soft": regexp.MustCompile(`(?mi)((?:(or)) onsite)|(onsite (?:or))`),
+		"onsite_hard": regexp.MustCompile(`(?mi)((?:(and)) onsite)|(onsite (?:and))`),
+		"disqualify":  regexp.MustCompile(`(?mi)(nft | blockchain | web3 | bitcoin | decentralize | democratize )`),
+	}
+
+	scoreMap := map[string]int{
+		"compensation":     5,
+		"typescript":       5,
+		"remote":           5,
+		"location":         5,
+		"desired_tech":     4,
+		"front_end":        4,
+		"full_stack":       3,
+		"acceptable_tech":  3,
+		"luxury":           3,
+		"seniority":        2,
+		"precise_location": 1,
+		"undesired_tech":   -1,
+		"onsite_soft":      -3,
+		"onsite_hard":      -5,
+		"disqualify":       -45,
+	}
+
+	listingScore := 0
+
+	for key, value := range regexMap {
+		if value.MatchString(listing) {
+			listingScore += scoreMap[key]
+		}
+	}
+	return listingScore
 
 }
 
-func removeInvalidEntries(comments []PostComment) []PostComment {
-	filtered := make([]PostComment, 0)
+//TODO: split title and description and link
+// func splitListing(listing string) (string, string, string) {
+// }
 
-	for _, comment := range comments {
-		hasMatch, err := regexp.MatchString(`(?i)(nft | chain | web3 | bitcoin | decentralize | democratize | onsite)`, comment.Content)
-
-		if err != nil {
-			panic(err)
-		}
-
-		if !hasMatch {
-			filtered = append(filtered, comment)
-		}
-	}
-	return filtered
+func writeToCSV(listings []Listing) {
+	return
 }
