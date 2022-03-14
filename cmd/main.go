@@ -160,7 +160,7 @@ func transformRawListing(listing string) Listing {
 		case tt == html.TextToken:
 			if prevStartToken.Data != "a" {
 				// first non <a> node will always be title
-				if reflect.DeepEqual(splitLisiting, StructuredListing{}) {
+				if reflect.DeepEqual(splitLisiting, Listing{}) {
 					splitLisiting.Title = transformTokenToText(tokenizer.Text())
 				} else {
 					splitLisiting.Description += transformTokenToText(tokenizer.Text()) + " "
