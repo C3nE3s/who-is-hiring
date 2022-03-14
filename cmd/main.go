@@ -1,13 +1,17 @@
 package main
 
 import (
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
 	"net/http"
+	"os"
 	"reflect"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"golang.org/x/net/html"
@@ -69,6 +73,9 @@ func main() {
 	}
 
 	listings := transformAndRank(result.Comments)
+	// for i, val := range listings {
+	// 	fmt.Println(i, val.Score)
+	// }
 	writeToCSV(listings)
 }
 
@@ -183,5 +190,29 @@ func transformTokenToText(token []byte) string {
 }
 
 func writeToCSV(listings []Listing) {
-	return
+	csvListingCategories := [5]string{"title", "description", "links", "time", "score"}
+
+	f, err := os.Create("march_HN_lisitngs.csv")
+	defer f.Close()
+
+	if err != nil {
+		log.Fatalln("failed to open file", err)
+	}
+
+	w := csv.NewWriter(f)
+	defer w.Flush()
+
+	if err := w.Write(csvListingCategories[:]); err != nil {
+		log.Fatalln("error writing categories to file", err)
+	}
+
+	for index, listing := range listings {
+		if err := w.Write(listingStructToArr(listing)[:]); err != nil {
+			log.Fatalln("error writing listing to file", err, index)
+		}
+	}
+}
+
+func listingStructToArr(listing Listing) []string {
+	return []string{listing.Title, listing.Description, listing.Links, strconv.Itoa(listing.Time), strconv.Itoa(listing.Score)}
 }
