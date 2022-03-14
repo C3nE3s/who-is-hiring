@@ -3,12 +3,17 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net/http"
+	"reflect"
 	"regexp"
+	"strings"
+
+	"golang.org/x/net/html"
 )
 
-//can get post ID through user call in future
+//can get post ID through user call in future to automate rather than hardcode values
 
 const baseUrl = "https://node-hnapi.herokuapp.com"
 const postResource = "item"
@@ -42,11 +47,11 @@ type PostComment struct {
 }
 
 type Listing struct {
-	title       string
-	description string
-	link        string
-	time        int
-	score       int
+	Title       string
+	Description string
+	Links       string
+	Time        int
+	Score       int
 }
 
 func main() {
@@ -63,23 +68,20 @@ func main() {
 		fmt.Println("Can not unmarshal JSON")
 	}
 
-	listings := formatAndRank(result.Comments)
+	listings := transformAndRank(result.Comments)
 	writeToCSV(listings)
 }
 
 // this is On^2 (nested loops)
 // TODO: make this more efficient
-func formatAndRank(comments []PostComment) []Listing {
+func transformAndRank(comments []PostComment) []Listing {
 	final := make([]Listing, 0)
 
 	for _, comment := range comments {
-		final = append(final, Listing{
-			title:       "",
-			description: "",
-			link:        "",
-			time:        comment.Time,
-			score:       getListingRelevanceRank(comment.Content),
-		})
+		temp := transformRawListing(comment.Content)
+		temp.Time = comment.Time
+		temp.Score = getListingRelevanceRank(comment.Content)
+		final = append(final, temp)
 	}
 
 	return final
@@ -136,9 +138,49 @@ func getListingRelevanceRank(listing string) int {
 
 }
 
-//TODO: split title and description and link
-// func splitListing(listing string) (string, string, string) {
-// }
+func transformRawListing(listing string) Listing {
+	splitLisiting := Listing{}
+	reader := strings.NewReader(listing)
+	tokenizer := html.NewTokenizer(reader)
+
+	prevStartToken := tokenizer.Token()
+
+	for {
+		tt := tokenizer.Next()
+		switch {
+		case tt == html.ErrorToken:
+			if tokenizer.Err() == io.EOF {
+				return splitLisiting
+			} else {
+				fmt.Println(html.ErrorToken.String())
+			}
+			break
+		case tt == html.StartTagToken:
+			prevStartToken = tokenizer.Token()
+		case tt == html.TextToken:
+			if prevStartToken.Data != "a" {
+				// first non <a> node will always be title
+				if reflect.DeepEqual(splitLisiting, StructuredListing{}) {
+					splitLisiting.Title = transformTokenToText(tokenizer.Text())
+				} else {
+					splitLisiting.Description += transformTokenToText(tokenizer.Text()) + " "
+				}
+			} else {
+				for _, a := range prevStartToken.Attr {
+					if a.Key == "href" {
+						splitLisiting.Links += a.Val + " "
+						break
+					}
+				}
+
+			}
+		}
+	}
+}
+
+func transformTokenToText(token []byte) string {
+	return strings.TrimSpace(html.UnescapeString(string(token)))
+}
 
 func writeToCSV(listings []Listing) {
 	return
